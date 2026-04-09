@@ -21,8 +21,8 @@ import sys
 import subprocess
 import time
 import argparse
-import signal
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 SCRIPT_DIR = Path(__file__).parent
 DEFAULT_REAPER = r"C:\Program Files\REAPER (x64)\reaper.exe"
@@ -174,15 +174,15 @@ def run_reaper_render(midi_path, wav_path, template_path, reaper_exe):
     return os.path.exists(wav_path)
 
 
-def run_slicer(wav_path, slicemap_path, output_dir):
-    """Run audio_slicer.py"""
-    cmd = [sys.executable, str(SCRIPT_DIR / "audio_slicer.py"), wav_path, slicemap_path, output_dir]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    print(result.stdout)
-    if result.returncode != 0:
-        print(f"  [ERROR] Slicing failed: {result.stderr}")
-        return False
-    return True
+def run_slicer_thread(wav_path, slicemap_path, output_dir, inst_name):
+    """Run slicer in thread - imports directly for speed"""
+    try:
+        from audio_slicer import slice_and_save
+        count = slice_and_save(wav_path, slicemap_path, output_dir)
+        return {"instrument": inst_name, "status": "OK", "samples": count, "output": output_dir}
+    except Exception as e:
+        print(f"  [ERROR] Slicing failed for {inst_name}: {e}")
+        return {"instrument": inst_name, "status": "SLICE_FAIL", "error": str(e)}
 
 
 def main():
@@ -231,6 +231,8 @@ def main():
         bot_proc = subprocess.Popen([sys.executable, AUTO_BOT])
 
     results = []
+    slice_futures = []
+    executor = ThreadPoolExecutor(max_workers=2)
 
     try:
         for i, inst in enumerate(instruments):
@@ -250,9 +252,7 @@ def main():
                 results.append({"instrument": inst["vst_name"], "status": "MIDI_FAIL"})
                 continue
 
-            # Find generated files
             midi_files = [f for f in os.listdir(midi_dir) if f.endswith(".mid")]
-            slicemap_files = [f for f in os.listdir(midi_dir) if f.endswith("_slicemap.json")]
 
             if not midi_files:
                 results.append({"instrument": inst["vst_name"], "status": "NO_MIDI"})
@@ -279,23 +279,31 @@ def main():
                     results.append({"instrument": inst["vst_name"], "status": "RENDER_FAIL", "articulation": artic_name})
                     continue
 
-                # 4. Slice
-                print(f"  [Step 3] Slicing {artic_name}...")
+                # 4. Slice in background thread — don't block next render
                 slice_out = os.path.join(samples_dir, artic_name)
-                if run_slicer(wav_path, slicemap_path, slice_out):
-                    sample_count = len([f for f in os.listdir(slice_out) if f.endswith(".wav")])
-                    results.append({
-                        "instrument": inst["vst_name"],
-                        "status": "OK",
-                        "articulation": artic_name,
-                        "samples": sample_count,
-                        "output": slice_out,
-                    })
+                print(f"  [Step 3] Slicing {artic_name} (background thread)...")
+                future = executor.submit(
+                    run_slicer_thread, wav_path, slicemap_path, slice_out, inst["vst_name"]
+                )
+                slice_futures.append(future)
+
+        # Wait for all slicing threads to finish
+        if slice_futures:
+            print(f"\n{'='*60}")
+            print(f"Waiting for {len(slice_futures)} slicing jobs to finish...")
+            print(f"{'='*60}")
+            for future in as_completed(slice_futures):
+                result = future.result()
+                results.append(result)
+                status = result.get("status", "?")
+                name = result.get("instrument", "?")
+                if status == "OK":
+                    print(f"  DONE {name} → {result.get('samples', 0)} samples")
                 else:
-                    results.append({"instrument": inst["vst_name"], "status": "SLICE_FAIL", "articulation": artic_name})
+                    print(f"  FAIL {name} → {status}")
 
     finally:
-        # Stop auto_bot
+        executor.shutdown(wait=True)
         if bot_proc:
             bot_proc.terminate()
             print("\nGUI popup bot stopped.")

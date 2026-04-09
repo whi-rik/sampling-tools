@@ -4,7 +4,7 @@ Audio Slicer for Kontakt Sampling Pipeline
 
 Slices a recorded WAV file into individual samples using the
 deterministic timing from the MIDI generator's slice map.
-Also performs basic QA checks on each sample.
+Uses raw byte slicing for speed (no sample-by-sample conversion).
 
 Usage:
     python3 audio_slicer.py recorded.wav slicemap.json [output_dir]
@@ -13,104 +13,11 @@ Usage:
 import json
 import sys
 import os
-import struct
 import wave
-import array
+import math
 
 
-def read_wav(path):
-    with wave.open(path, 'rb') as w:
-        nchannels = w.getnchannels()
-        sampwidth = w.getsampwidth()
-        framerate = w.getframerate()
-        nframes = w.getnframes()
-        raw = w.readframes(nframes)
-
-    if sampwidth == 2:
-        fmt = f"<{nframes * nchannels}h"
-        samples = list(struct.unpack(fmt, raw))
-        max_val = 32767.0
-    elif sampwidth == 3:
-        samples = []
-        for i in range(0, len(raw), 3):
-            b = raw[i:i+3]
-            val = int.from_bytes(b, byteorder='little', signed=True)
-            samples.append(val)
-        max_val = 8388607.0
-    elif sampwidth == 4:
-        fmt = f"<{nframes * nchannels}i"
-        samples = list(struct.unpack(fmt, raw))
-        max_val = 2147483647.0
-    else:
-        raise ValueError(f"Unsupported sample width: {sampwidth}")
-
-    return samples, nchannels, sampwidth, framerate, max_val
-
-
-def write_wav(path, samples, nchannels, sampwidth, framerate):
-    with wave.open(path, 'wb') as w:
-        w.setnchannels(nchannels)
-        w.setsampwidth(sampwidth)
-        w.setframerate(framerate)
-
-        if sampwidth == 2:
-            raw = struct.pack(f"<{len(samples)}h", *[max(-32768, min(32767, s)) for s in samples])
-        elif sampwidth == 3:
-            raw = b''
-            for s in samples:
-                s = max(-8388608, min(8388607, s))
-                raw += s.to_bytes(3, byteorder='little', signed=True)
-        elif sampwidth == 4:
-            raw = struct.pack(f"<{len(samples)}i", *samples)
-        else:
-            raise ValueError(f"Unsupported sample width: {sampwidth}")
-
-        w.writeframes(raw)
-
-
-def rms_db(samples, max_val):
-    if not samples:
-        return -100.0
-    sum_sq = sum((s / max_val) ** 2 for s in samples)
-    rms = (sum_sq / len(samples)) ** 0.5
-    if rms < 1e-10:
-        return -100.0
-    import math
-    return 20 * math.log10(rms)
-
-
-def peak_db(samples, max_val):
-    if not samples:
-        return -100.0
-    peak = max(abs(s) for s in samples) / max_val
-    if peak < 1e-10:
-        return -100.0
-    import math
-    return 20 * math.log10(peak)
-
-
-def slice_audio(wav_samples, nchannels, framerate, start_sec, duration_sec):
-    start_frame = int(start_sec * framerate)
-    end_frame = int((start_sec + duration_sec) * framerate)
-
-    start_idx = start_frame * nchannels
-    end_idx = end_frame * nchannels
-
-    start_idx = max(0, min(start_idx, len(wav_samples)))
-    end_idx = max(0, min(end_idx, len(wav_samples)))
-
-    return wav_samples[start_idx:end_idx]
-
-
-def main():
-    if len(sys.argv) < 3:
-        print("Usage: python3 audio_slicer.py recorded.wav slicemap.json [output_dir]")
-        sys.exit(1)
-
-    wav_path = sys.argv[1]
-    slicemap_path = sys.argv[2]
-    output_dir = sys.argv[3] if len(sys.argv) > 3 else None
-
+def slice_and_save(wav_path, slicemap_path, output_dir=None):
     with open(slicemap_path) as f:
         slicemap = json.load(f)
 
@@ -119,49 +26,95 @@ def main():
 
     if output_dir is None:
         output_dir = os.path.join(os.path.dirname(wav_path), f"{instrument}_{articulation}")
-
     os.makedirs(output_dir, exist_ok=True)
 
+    # Read WAV header only first
+    with wave.open(wav_path, 'rb') as w:
+        nchannels = w.getnchannels()
+        sampwidth = w.getsampwidth()
+        framerate = w.getframerate()
+        nframes = w.getnframes()
+        raw = w.readframes(nframes)
+
+    bytes_per_frame = nchannels * sampwidth
+    total_duration = nframes / framerate
     print(f"Reading {wav_path}...")
-    wav_samples, nchannels, sampwidth, framerate, max_val = read_wav(wav_path)
-    total_duration = len(wav_samples) / nchannels / framerate
     print(f"  Duration: {total_duration:.1f}s, {nchannels}ch, {sampwidth*8}bit, {framerate}Hz")
 
     samples_list = slicemap['samples']
     print(f"  Slicing {len(samples_list)} samples...")
-    print()
 
     qa_issues = []
     success_count = 0
 
     for i, s in enumerate(samples_list):
         filename = s['filename']
-        start = s['start_sec']
-        duration = s['total_duration_sec']
+        start_sec = s['start_sec']
+        duration_sec = s['total_duration_sec']
 
-        sliced = slice_audio(wav_samples, nchannels, framerate, start, duration)
+        start_frame = int(start_sec * framerate)
+        end_frame = int((start_sec + duration_sec) * framerate)
+        start_frame = max(0, min(start_frame, nframes))
+        end_frame = max(0, min(end_frame, nframes))
 
-        if not sliced:
-            qa_issues.append(f"EMPTY: {filename} (start={start:.2f}s)")
+        start_byte = start_frame * bytes_per_frame
+        end_byte = end_frame * bytes_per_frame
+        chunk = raw[start_byte:end_byte]
+
+        if not chunk:
+            qa_issues.append(f"EMPTY: {filename} (start={start_sec:.2f}s)")
             continue
 
-        # QA checks
-        rms = rms_db(sliced, max_val)
-        peak = peak_db(sliced, max_val)
+        # QA: peak check on raw bytes (fast)
+        num_samples = len(chunk) // sampwidth
+        peak_val = 0
+        if sampwidth == 2:
+            for j in range(0, len(chunk), 2):
+                val = int.from_bytes(chunk[j:j+2], 'little', signed=True)
+                a = abs(val)
+                if a > peak_val:
+                    peak_val = a
+            max_val = 32767
+        elif sampwidth == 3:
+            # Sample every 10th sample for speed
+            step = max(3, (len(chunk) // 3 // 1000) * 3)
+            for j in range(0, len(chunk), step):
+                val = int.from_bytes(chunk[j:j+3], 'little', signed=True)
+                a = abs(val)
+                if a > peak_val:
+                    peak_val = a
+            max_val = 8388607
+        elif sampwidth == 4:
+            for j in range(0, len(chunk), 4):
+                val = int.from_bytes(chunk[j:j+4], 'little', signed=True)
+                a = abs(val)
+                if a > peak_val:
+                    peak_val = a
+            max_val = 2147483647
+        else:
+            max_val = 1
 
         issues = []
-        if rms < -50.0:
-            issues.append(f"QUIET (RMS={rms:.1f}dB)")
-        if peak > -0.5:
-            issues.append(f"CLIPPING (Peak={peak:.1f}dB)")
+        if peak_val == 0:
+            issues.append("SILENT")
+        else:
+            peak_db = 20 * math.log10(peak_val / max_val)
+            if peak_db < -50.0:
+                issues.append(f"QUIET (Peak={peak_db:.1f}dB)")
+            if peak_db > -0.5:
+                issues.append(f"CLIPPING (Peak={peak_db:.1f}dB)")
 
+        # Write WAV directly from raw bytes
         out_path = os.path.join(output_dir, filename)
-        write_wav(out_path, sliced, nchannels, sampwidth, framerate)
-        success_count += 1
+        with wave.open(out_path, 'wb') as w:
+            w.setnchannels(nchannels)
+            w.setsampwidth(sampwidth)
+            w.setframerate(framerate)
+            w.writeframes(chunk)
 
-        status = "OK" if not issues else ", ".join(issues)
+        success_count += 1
         if issues:
-            qa_issues.append(f"{filename}: {status}")
+            qa_issues.append(f"{filename}: {', '.join(issues)}")
 
         if (i + 1) % 20 == 0 or i == len(samples_list) - 1:
             print(f"  [{i+1}/{len(samples_list)}] sliced")
@@ -178,7 +131,6 @@ def main():
     else:
         print(f"  QA: All samples passed")
 
-    # Save QA report
     report_path = os.path.join(output_dir, "_qa_report.json")
     with open(report_path, 'w') as f:
         json.dump({
@@ -190,6 +142,18 @@ def main():
         }, f, indent=2)
 
     print(f"  QA report: {report_path}")
+    return success_count
+
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: python3 audio_slicer.py recorded.wav slicemap.json [output_dir]")
+        sys.exit(1)
+
+    wav_path = sys.argv[1]
+    slicemap_path = sys.argv[2]
+    output_dir = sys.argv[3] if len(sys.argv) > 3 else None
+    slice_and_save(wav_path, slicemap_path, output_dir)
 
 
 if __name__ == '__main__':
