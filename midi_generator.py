@@ -62,6 +62,7 @@ def generate_midi_for_articulation(config, articulation, output_path):
     silence_gap = articulation['silence_gap_sec']
     rr_count = articulation['round_robins']
 
+    use_sustain_pedal = articulation.get('sustain_pedal', True)
     note_ticks = seconds_to_ticks(note_dur, tempo, ticks_per_beat)
     gap_ticks = seconds_to_ticks(silence_gap + release_tail, tempo, ticks_per_beat)
 
@@ -86,11 +87,17 @@ def generate_midi_for_articulation(config, articulation, output_path):
 
         for root in root_notes:
             for rr in range(1, rr_count + 1):
-                # Note ON
-                track.append(Message('note_on', note=root, velocity=vel, time=0 if total_samples == 0 else gap_ticks))
+                # Sustain pedal ON before note
+                if use_sustain_pedal:
+                    track.append(Message('control_change', control=64, value=127, time=0 if total_samples == 0 else gap_ticks))
+                    track.append(Message('note_on', note=root, velocity=vel, time=0))
+                else:
+                    track.append(Message('note_on', note=root, velocity=vel, time=0 if total_samples == 0 else gap_ticks))
 
-                # Note OFF
+                # Note OFF then pedal OFF (pedal holds the sound during note_dur)
                 track.append(Message('note_off', note=root, velocity=0, time=note_ticks))
+                if use_sustain_pedal:
+                    track.append(Message('control_change', control=64, value=0, time=0))
 
                 # Record slice info
                 rr_suffix = f"_rr{rr}" if rr_count > 1 else ""
