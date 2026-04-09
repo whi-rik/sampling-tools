@@ -1,0 +1,8 @@
+[project]
+name = "sampling-tools"
+version = "0.1.0"
+description = "Automated sampling pipeline for Kontakt to HISE VST3"
+requires-python = ">=3.10"
+dependencies = [
+    "mido>=1.3.3",
+]
