@@ -1,7 +1,0 @@
-{
-  "tool_name": "Read",
-  "tool_input_preview": "{\"file_path\":\"/Users/sihan/projects/hise/reaper/render_job.lua\"}",
-  "error": "File does not exist. Note: your current working directory is /Users/sihan/projects/hise/sampling_tools. Did you mean /Users/sihan/projects/hise/sampling_tools/reaper/render_job.lua?",
-  "timestamp": "2026-04-09T06:22:19.712Z",
-  "retry_count": 2
-}
