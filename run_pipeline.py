@@ -28,6 +28,33 @@ SCRIPT_DIR = Path(__file__).parent
 DEFAULT_REAPER = r"C:\Program Files\REAPER (x64)\reaper.exe"
 RENDER_LUA = str(SCRIPT_DIR / "reaper" / "render_job.lua")
 AUTO_BOT = str(SCRIPT_DIR / "__script" / "auto_bot.py")
+
+def get_reaper_resource_path():
+    """Get REAPER resource path (where TrackTemplates live)"""
+    if sys.platform == "win32":
+        return os.path.join(os.environ.get("APPDATA", ""), "REAPER")
+    else:
+        return os.path.expanduser("~/Library/Application Support/REAPER")
+
+
+def resolve_template_path(raw_path):
+    """Convert DB relative path to absolute path"""
+    if os.path.isabs(raw_path) and os.path.exists(raw_path):
+        return raw_path
+    # Strip leading slash/backslash, find REAPER in path and take everything after
+    clean = raw_path.lstrip("/\\")
+    parts = clean.replace("\\", "/").split("/")
+    reaper_idx = None
+    for i, p in enumerate(parts):
+        if p.lower() == "reaper":
+            reaper_idx = i
+            break
+    if reaper_idx is not None:
+        rel = os.path.join(*parts[reaper_idx + 1:])
+    else:
+        rel = clean
+    full = os.path.join(get_reaper_resource_path(), rel)
+    return full
 TEMPLATES_JSON = str(SCRIPT_DIR / "kontakt_templates.json")
 
 # Sampling defaults
@@ -114,10 +141,11 @@ def run_midi_generator(config_path, output_dir):
 
 def run_reaper_render(midi_path, wav_path, template_path, reaper_exe):
     """Launch Reaper with render_job.lua and wait for completion"""
+    resolved_template = resolve_template_path(template_path)
     env = os.environ.copy()
     env["RENDER_MIDI_PATH"] = str(midi_path)
     env["RENDER_WAV_PATH"] = str(wav_path)
-    env["RENDER_TEMPLATE_PATH"] = str(template_path)
+    env["RENDER_TEMPLATE_PATH"] = resolved_template
 
     # Reaper CLI: scripts are passed as positional args
     # -new: start with new project (clean state)
