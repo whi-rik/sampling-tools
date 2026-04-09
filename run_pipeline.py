@@ -187,12 +187,13 @@ def run_slicer_thread(wav_path, slicemap_path, output_dir, inst_name):
 
 def main():
     parser = argparse.ArgumentParser(description="Full sampling pipeline")
-    parser.add_argument("--count", type=int, default=10, help="Number of instruments to sample")
+    parser.add_argument("--count", type=int, default=0, help="Number of instruments (0=all)")
     parser.add_argument("--output", type=str, default="./output", help="Output directory")
     parser.add_argument("--reaper", type=str, default=DEFAULT_REAPER, help="Reaper executable path")
     parser.add_argument("--templates", type=str, default=TEMPLATES_JSON, help="Templates JSON path")
     parser.add_argument("--no-render", action="store_true", help="Skip Reaper render (MIDI + config only)")
     parser.add_argument("--select", type=str, nargs="*", help="Select specific inst_name(s)")
+    parser.add_argument("--all", action="store_true", help="Process ALL templates (not just one per category)")
     args = parser.parse_args()
 
     output_root = os.path.abspath(args.output)
@@ -203,17 +204,20 @@ def main():
     print(f"Loaded {len(templates)} templates")
 
     # Pick instruments
-    if args.select:
+    if args.all:
+        # All 732 templates
+        instruments = templates
+    elif args.select:
         selected = [t for t in templates if t["inst_name"] in args.select]
-        # Deduplicate by inst_name (pick highest version)
-        by_name = {}
-        for t in selected:
-            name = t["inst_name"]
-            if name not in by_name or t.get("version", 0) > by_name[name].get("version", 0):
-                by_name[name] = t
-        instruments = list(by_name.values())[:args.count]
-    else:
+        if args.count > 0:
+            instruments = selected[:args.count]
+        else:
+            instruments = selected
+    elif args.count > 0:
         instruments = pick_instruments(templates, args.count)
+    else:
+        # Default: one per category (all categories)
+        instruments = pick_instruments(templates, len(templates))
 
     print(f"Selected {len(instruments)} instruments:\n")
     for i, inst in enumerate(instruments):
