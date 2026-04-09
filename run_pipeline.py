@@ -119,13 +119,11 @@ def run_reaper_render(midi_path, wav_path, template_path, reaper_exe):
     env["RENDER_WAV_PATH"] = str(wav_path)
     env["RENDER_TEMPLATE_PATH"] = str(template_path)
 
-    cmd = [reaper_exe, "-nosplash", "-nonewinst"]
-
-    # Check if render_job.lua needs to be passed as action
-    # Reaper runs scripts via -script flag or as startup action
-    lua_path = RENDER_LUA
-    if os.path.exists(lua_path):
-        cmd.extend(["-script", lua_path])
+    # Reaper CLI: scripts are passed as positional args
+    # -new: start with new project (clean state)
+    # -nosplash: skip splash screen
+    # render_job.lua will quit Reaper when done
+    cmd = [reaper_exe, "-nosplash", "-new", RENDER_LUA]
 
     print(f"  Launching Reaper...")
     proc = subprocess.Popen(cmd, env=env)
