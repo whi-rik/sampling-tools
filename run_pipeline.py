@@ -175,11 +175,23 @@ def run_reaper_render(midi_path, wav_path, template_path, reaper_exe):
 
 
 def run_slicer_thread(wav_path, slicemap_path, output_dir, inst_name):
-    """Run slicer in thread - imports directly for speed"""
+    """Run slicer in thread, then analyze envelope"""
     try:
         from audio_slicer import slice_and_save
+        from envelope_analyzer import analyze_folder
         count = slice_and_save(wav_path, slicemap_path, output_dir)
-        return {"instrument": inst_name, "status": "OK", "samples": count, "output": output_dir}
+
+        # Auto-analyze envelope
+        env = analyze_folder(output_dir)
+        env_path = os.path.join(output_dir, "_envelope.json")
+        with open(env_path, 'w') as f:
+            json.dump(env, f, indent=2)
+
+        return {
+            "instrument": inst_name, "status": "OK",
+            "samples": count, "output": output_dir,
+            "envelope": env,
+        }
     except Exception as e:
         print(f"  [ERROR] Slicing failed for {inst_name}: {e}")
         return {"instrument": inst_name, "status": "SLICE_FAIL", "error": str(e)}
@@ -302,7 +314,9 @@ def main():
                 status = result.get("status", "?")
                 name = result.get("instrument", "?")
                 if status == "OK":
-                    print(f"  DONE {name} → {result.get('samples', 0)} samples")
+                    env = result.get("envelope", {})
+                    env_str = f" [A={env.get('attack_ms',0)}ms R={env.get('release_ms',0)}ms {env.get('type','?')}]" if env else ""
+                    print(f"  DONE {name} → {result.get('samples', 0)} samples{env_str}")
                 else:
                     print(f"  FAIL {name} → {status}")
 
