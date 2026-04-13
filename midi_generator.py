@@ -63,8 +63,14 @@ def generate_midi_for_articulation(config, articulation, output_path):
     rr_count = articulation['round_robins']
 
     use_sustain_pedal = articulation.get('sustain_pedal', True)
+    hold_cc = articulation.get('hold_cc', {})
     note_ticks = seconds_to_ticks(note_dur, tempo, ticks_per_beat)
     gap_ticks = seconds_to_ticks(silence_gap + release_tail, tempo, ticks_per_beat)
+
+    # Send hold CCs at the beginning (CC1=mod wheel, CC11=expression, etc.)
+    for cc_name, cc_val in hold_cc.items():
+        cc_num = int(cc_name.replace('cc', ''))
+        track.append(Message('control_change', control=cc_num, value=cc_val, time=0))
 
     # Keyswitch at the beginning if needed
     ks = articulation.get('keyswitch')

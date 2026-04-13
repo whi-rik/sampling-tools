@@ -1,0 +1,33 @@
+{
+  "instrument_name": "Amati_Viola_Sustain",
+  "kontakt_inst": "Amati Viola",
+  "template_path": "\\AppData\\Roaming\\REAPER\\TrackTemplates\\ver1\\Amati Viol_Bowed_Amati Viol_00061.RTrackTemplate",
+  "vst_seq": 344,
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "range": {
+    "lo_note": 48,
+    "hi_note": 86
+  },
+  "sampling_interval": 3,
+  "articulations": [
+    {
+      "name": "sustain",
+      "keyswitch": null,
+      "note_duration_sec": 8.0,
+      "release_tail_sec": 2.0,
+      "silence_gap_sec": 2.0,
+      "sustain_pedal": true,
+      "hold_cc": {
+        "cc1": 100,
+        "cc11": 127
+      },
+      "velocity_layers": [
+        { "name": "dynamic1", "midi_vel": 30, "lo_vel": 0, "hi_vel": 42 },
+        { "name": "dynamic2", "midi_vel": 75, "lo_vel": 43, "hi_vel": 84 },
+        { "name": "dynamic3", "midi_vel": 115, "lo_vel": 85, "hi_vel": 127 }
+      ],
+      "round_robins": 1
+    }
+  ]
+}
