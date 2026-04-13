@@ -17,7 +17,7 @@ import wave
 import math
 
 
-def slice_and_save(wav_path, slicemap_path, output_dir=None):
+def slice_and_save(wav_path, slicemap_path, output_dir=None, normalize=True):
     with open(slicemap_path) as f:
         slicemap = json.load(f)
 
@@ -104,6 +104,29 @@ def slice_and_save(wav_path, slicemap_path, output_dir=None):
             if peak_db > -0.5:
                 issues.append(f"CLIPPING (Peak={peak_db:.1f}dB)")
 
+        # Normalize if enabled (target peak = -1dB)
+        if normalize and peak_val > 0:
+            target_peak = int(max_val * 0.891)  # -1dB
+            if peak_val < target_peak:
+                scale = target_peak / peak_val
+                normalized = bytearray()
+                for j in range(0, len(chunk), sampwidth):
+                    if sampwidth == 2 and j + 2 <= len(chunk):
+                        val = int.from_bytes(chunk[j:j+2], 'little', signed=True)
+                        val = max(-32768, min(32767, int(val * scale)))
+                        normalized.extend(val.to_bytes(2, 'little', signed=True))
+                    elif sampwidth == 3 and j + 3 <= len(chunk):
+                        val = int.from_bytes(chunk[j:j+3], 'little', signed=True)
+                        val = max(-8388608, min(8388607, int(val * scale)))
+                        normalized.extend(val.to_bytes(3, 'little', signed=True))
+                    elif sampwidth == 4 and j + 4 <= len(chunk):
+                        val = int.from_bytes(chunk[j:j+4], 'little', signed=True)
+                        val = max(-2147483648, min(2147483647, int(val * scale)))
+                        normalized.extend(val.to_bytes(4, 'little', signed=True))
+                chunk = bytes(normalized)
+                norm_db = 20 * math.log10(scale)
+                issues.append(f"NORMALIZED (+{norm_db:.1f}dB)")
+
         # Write WAV directly from raw bytes
         out_path = os.path.join(output_dir, filename)
         with wave.open(out_path, 'wb') as w:
@@ -147,13 +170,15 @@ def slice_and_save(wav_path, slicemap_path, output_dir=None):
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python3 audio_slicer.py recorded.wav slicemap.json [output_dir]")
+        print("Usage: python3 audio_slicer.py recorded.wav slicemap.json [output_dir] [--no-normalize]")
         sys.exit(1)
 
     wav_path = sys.argv[1]
     slicemap_path = sys.argv[2]
-    output_dir = sys.argv[3] if len(sys.argv) > 3 else None
-    slice_and_save(wav_path, slicemap_path, output_dir)
+    no_norm = '--no-normalize' in sys.argv
+    args = [a for a in sys.argv[3:] if not a.startswith('--')]
+    output_dir = args[0] if args else None
+    slice_and_save(wav_path, slicemap_path, output_dir, normalize=not no_norm)
 
 
 if __name__ == '__main__':
