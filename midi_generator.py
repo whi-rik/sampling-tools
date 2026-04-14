@@ -141,13 +141,111 @@ def generate_midi_for_articulation(config, articulation, output_path):
     return root_notes, total_samples, total_time, slice_map
 
 
+def generate_individual_midis(config, articulation, output_dir):
+    """Generate one MIDI file per note — no slicing needed"""
+    tempo = 500_000
+    ticks_per_beat = 480
+
+    lo_note = config['range']['lo_note']
+    hi_note = config['range']['hi_note']
+    interval = config['sampling_interval']
+    root_notes = generate_root_notes(lo_note, hi_note, interval)
+
+    note_dur = articulation['note_duration_sec']
+    release_tail = articulation.get('release_tail_sec', 0.3)
+    rr_count = articulation['round_robins']
+    use_sustain_pedal = articulation.get('sustain_pedal', True)
+    hold_cc = articulation.get('hold_cc', {})
+
+    note_ticks = seconds_to_ticks(note_dur, tempo, ticks_per_beat)
+    instrument = config['instrument_name']
+    artic_name = articulation['name']
+
+    midi_dir = os.path.join(output_dir, "midi_individual")
+    os.makedirs(midi_dir, exist_ok=True)
+
+    manifest = []
+    total = 0
+
+    for vel_layer in articulation['velocity_layers']:
+        vel = vel_layer['midi_vel']
+        vel_name = vel_layer['name']
+
+        for root in root_notes:
+            for rr in range(1, rr_count + 1):
+                rr_suffix = f"_rr{rr}" if rr_count > 1 else ""
+                basename = f"{instrument}_{artic_name}_{root}_{vel_name}{rr_suffix}"
+
+                mid = MidiFile(ticks_per_beat=ticks_per_beat)
+                track = MidiTrack()
+                mid.tracks.append(track)
+                track.append(MetaMessage('set_tempo', tempo=tempo))
+                track.append(MetaMessage('track_name', name=basename))
+
+                # Hold CCs
+                for cc_name, cc_val in hold_cc.items():
+                    cc_num = int(cc_name.replace('cc', ''))
+                    track.append(Message('control_change', control=cc_num, value=cc_val, time=0))
+
+                # Small lead-in silence (200ms)
+                lead_in = seconds_to_ticks(0.2, tempo, ticks_per_beat)
+
+                # Sustain pedal + note
+                if use_sustain_pedal:
+                    track.append(Message('control_change', control=64, value=127, time=lead_in))
+                    track.append(Message('note_on', note=root, velocity=vel, time=0))
+                else:
+                    track.append(Message('note_on', note=root, velocity=vel, time=lead_in))
+
+                track.append(Message('note_off', note=root, velocity=0, time=note_ticks))
+                if use_sustain_pedal:
+                    track.append(Message('control_change', control=64, value=0, time=0))
+
+                # Tail silence
+                tail_ticks = seconds_to_ticks(release_tail, tempo, ticks_per_beat)
+                track.append(MetaMessage('end_of_track', time=tail_ticks))
+
+                midi_path = os.path.join(midi_dir, f"{basename}.mid")
+                mid.save(midi_path)
+
+                manifest.append({
+                    "midi_file": f"{basename}.mid",
+                    "wav_file": f"{basename}.wav",
+                    "root_note": root,
+                    "note_name": midi_to_name(root),
+                    "velocity_layer": vel_name,
+                    "midi_velocity": vel,
+                    "lo_vel": vel_layer['lo_vel'],
+                    "hi_vel": vel_layer['hi_vel'],
+                    "round_robin": rr,
+                })
+                total += 1
+
+    # Save manifest
+    manifest_path = os.path.join(output_dir, f"{instrument}_{artic_name}_manifest.json")
+    with open(manifest_path, 'w') as f:
+        json.dump({
+            "instrument": instrument,
+            "articulation": artic_name,
+            "mode": "individual",
+            "sample_rate": config['sample_rate'],
+            "total": total,
+            "samples": manifest,
+        }, f, indent=2)
+
+    total_time = total * (note_dur + release_tail + 0.2)
+    return root_notes, total, total_time, manifest
+
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 midi_generator.py config.json [output_dir]")
+        print("Usage: python3 midi_generator.py config.json [output_dir] [--individual]")
         sys.exit(1)
 
     config_path = sys.argv[1]
-    output_dir = sys.argv[2] if len(sys.argv) > 2 else os.path.dirname(config_path) or "."
+    individual = '--individual' in sys.argv
+    args = [a for a in sys.argv[2:] if not a.startswith('--')]
+    output_dir = args[0] if args else os.path.dirname(config_path) or "."
 
     with open(config_path) as f:
         config = json.load(f)
@@ -157,45 +255,57 @@ def main():
 
     print(f"Instrument: {instrument}")
     print(f"Range: MIDI {config['range']['lo_note']}-{config['range']['hi_note']}")
+    print(f"Mode: {'individual (1 MIDI per note)' if individual else 'batch (1 MIDI per articulation)'}")
     print(f"Interval: {config['sampling_interval']} semitones")
     print()
 
-    all_slice_maps = {}
-
     for artic in config['articulations']:
-        midi_path = os.path.join(output_dir, f"{instrument}_{artic['name']}.mid")
-        slice_map_path = os.path.join(output_dir, f"{instrument}_{artic['name']}_slicemap.json")
+        if individual:
+            root_notes, count, total_time, manifest = generate_individual_midis(
+                config, artic, output_dir
+            )
+            minutes = int(total_time // 60)
+            seconds = total_time % 60
+            print(f"[{artic['name']}] (individual mode)")
+            print(f"  MIDI dir: {os.path.join(output_dir, 'midi_individual')}")
+            print(f"  Root notes: {len(root_notes)} ({midi_to_name(root_notes[0])}-{midi_to_name(root_notes[-1])})")
+            print(f"  Velocity layers: {len(artic['velocity_layers'])}")
+            print(f"  Round robins: {artic['round_robins']}")
+            print(f"  Total MIDI files: {count}")
+            print(f"  Total recording time: {minutes}m {seconds:.1f}s")
+            print()
+            print("Done! Next steps:")
+            print("1. Render each MIDI individually in Reaper")
+            print("2. Each rendered WAV = one sample (no slicing needed)")
+        else:
+            midi_path = os.path.join(output_dir, f"{instrument}_{artic['name']}.mid")
+            slice_map_path = os.path.join(output_dir, f"{instrument}_{artic['name']}_slicemap.json")
 
-        root_notes, count, total_time, slice_map = generate_midi_for_articulation(
-            config, artic, midi_path
-        )
+            root_notes, count, total_time, slice_map = generate_midi_for_articulation(
+                config, artic, midi_path
+            )
 
-        all_slice_maps[artic['name']] = slice_map
+            with open(slice_map_path, 'w') as f:
+                json.dump({
+                    "instrument": instrument,
+                    "articulation": artic['name'],
+                    "sample_rate": config['sample_rate'],
+                    "samples": slice_map
+                }, f, indent=2)
 
-        # Save slice map for the slicer
-        with open(slice_map_path, 'w') as f:
-            json.dump({
-                "instrument": instrument,
-                "articulation": artic['name'],
-                "sample_rate": config['sample_rate'],
-                "samples": slice_map
-            }, f, indent=2)
-
-        minutes = int(total_time // 60)
-        seconds = total_time % 60
-        print(f"[{artic['name']}]")
-        print(f"  MIDI: {midi_path}")
-        print(f"  Root notes: {len(root_notes)} ({midi_to_name(root_notes[0])}-{midi_to_name(root_notes[-1])})")
-        print(f"  Velocity layers: {len(artic['velocity_layers'])}")
-        print(f"  Round robins: {artic['round_robins']}")
-        print(f"  Total samples: {count}")
-        print(f"  Recording time: {minutes}m {seconds:.1f}s")
-        print()
-
-    print("Done! Next steps:")
-    print("1. Load Kontakt instrument in Reaper")
-    print("2. Import each .mid file and record the audio output")
-    print("3. Run audio_slicer.py with the recorded WAV and corresponding _slicemap.json")
+            minutes = int(total_time // 60)
+            seconds = total_time % 60
+            print(f"[{artic['name']}] (batch mode)")
+            print(f"  MIDI: {midi_path}")
+            print(f"  Root notes: {len(root_notes)} ({midi_to_name(root_notes[0])}-{midi_to_name(root_notes[-1])})")
+            print(f"  Velocity layers: {len(artic['velocity_layers'])}")
+            print(f"  Round robins: {artic['round_robins']}")
+            print(f"  Total samples: {count}")
+            print(f"  Recording time: {minutes}m {seconds:.1f}s")
+            print()
+            print("Done! Next steps:")
+            print("1. Import .mid file and record audio output")
+            print("2. Run audio_slicer.py with the recorded WAV")
 
 
 if __name__ == '__main__':
