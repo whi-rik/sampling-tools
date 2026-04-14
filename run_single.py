@@ -119,6 +119,7 @@ def main():
     parser.add_argument("--reaper", default=DEFAULT_REAPER, help="Reaper executable")
     parser.add_argument("--no-render", action="store_true", help="MIDI generation only")
     parser.add_argument("--slice-only", type=str, help="Skip render, slice this WAV file")
+    parser.add_argument("--individual", action="store_true", help="One MIDI per note, no slicing")
     parser.add_argument("--render-timeout", type=int, default=600, help="Render timeout seconds")
     args = parser.parse_args()
 
@@ -143,8 +144,71 @@ def main():
     try:
         for artic in config['articulations']:
             artic_name = artic['name']
-            midi_dir = os.path.join(output, "midi")
             samples_dir = os.path.join(output, "samples", artic_name)
+
+            if args.individual:
+                # === INDIVIDUAL MODE: one MIDI per note ===
+                print(f"\n[Step 1] Generating individual MIDIs for {artic_name}...")
+                cmd = [sys.executable, str(SCRIPT_DIR / "midi_generator.py"), args.config, output, "--individual"]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                print(result.stdout)
+                if result.returncode != 0:
+                    print(f"[ERROR] MIDI generation: {result.stderr}")
+                    continue
+
+                # Load manifest
+                manifest_path = os.path.join(output, f"{instrument}_{artic_name}_manifest.json")
+                if not os.path.exists(manifest_path):
+                    print(f"[ERROR] Manifest not found: {manifest_path}")
+                    continue
+                with open(manifest_path) as f:
+                    manifest = json.load(f)
+
+                midi_ind_dir = os.path.join(output, "midi_individual")
+                os.makedirs(samples_dir, exist_ok=True)
+
+                if args.no_render:
+                    print(f"[Step 2] Skipped (--no-render)")
+                    continue
+
+                # Render each MIDI individually
+                template = config.get('template_path', '')
+                total = len(manifest['samples'])
+                for idx, sample in enumerate(manifest['samples']):
+                    midi_path = os.path.join(midi_ind_dir, sample['midi_file'])
+                    wav_path = os.path.join(samples_dir, sample['wav_file'])
+
+                    if os.path.exists(wav_path):
+                        print(f"  [{idx+1}/{total}] Skip (exists): {sample['wav_file']}")
+                        continue
+
+                    print(f"  [{idx+1}/{total}] Rendering {sample['wav_file']}...")
+                    run_render(midi_path, wav_path, template, args.reaper, args.render_timeout)
+
+                # Normalize all rendered WAVs
+                print(f"\n[Step 3] Normalizing samples...")
+                normalize_count = 0
+                for sample in manifest['samples']:
+                    wav_path = os.path.join(samples_dir, sample['wav_file'])
+                    if os.path.exists(wav_path):
+                        normalize_count += 1
+                print(f"  {normalize_count} samples rendered")
+
+                # Envelope analysis
+                print(f"\n[Step 4] Analyzing envelope...")
+                env = run_envelope(samples_dir)
+
+                print(f"\n{'='*60}")
+                print(f"  DONE: {instrument} / {artic_name} (individual)")
+                print(f"  Samples: {normalize_count}")
+                print(f"  Output: {samples_dir}")
+                if env:
+                    print(f"  Envelope: A={env.get('attack_ms',0)}ms R={env.get('release_ms',0)}ms Type={env.get('type','?')}")
+                print(f"{'='*60}")
+                continue
+
+            # === BATCH MODE (original) ===
+            midi_dir = os.path.join(output, "midi")
 
             # Step 1: MIDI
             if not args.slice_only:
