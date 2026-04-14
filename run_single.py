@@ -22,6 +22,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent
 DEFAULT_REAPER = r"C:\Program Files\REAPER (x64)\reaper.exe"
 RENDER_LUA = str(SCRIPT_DIR / "reaper" / "render_job.lua")
+RENDER_SEQ_LUA = str(SCRIPT_DIR / "reaper" / "render_sequential.lua")
 AUTO_BOT = str(SCRIPT_DIR / "__script" / "auto_bot.py")
 
 
@@ -171,28 +172,32 @@ def main():
                     print(f"[Step 2] Skipped (--no-render)")
                     continue
 
-                # Render each MIDI individually
+                # Sequential render: one Reaper session, Kontakt loads once
                 template = config.get('template_path', '')
-                total = len(manifest['samples'])
-                for idx, sample in enumerate(manifest['samples']):
-                    midi_path = os.path.join(midi_ind_dir, sample['midi_file'])
-                    wav_path = os.path.join(samples_dir, sample['wav_file'])
+                resolved_template = resolve_template_path(template)
 
-                    if os.path.exists(wav_path):
-                        print(f"  [{idx+1}/{total}] Skip (exists): {sample['wav_file']}")
-                        continue
+                print(f"\n[Step 2] Sequential render ({len(manifest['samples'])} samples)...")
+                print(f"  Template: {resolved_template}")
 
-                    print(f"  [{idx+1}/{total}] Rendering {sample['wav_file']}...")
-                    run_render(midi_path, wav_path, template, args.reaper, args.render_timeout)
+                env = os.environ.copy()
+                env["RENDER_MANIFEST_PATH"] = manifest_path
+                env["RENDER_MIDI_DIR"] = midi_ind_dir
+                env["RENDER_OUTPUT_DIR"] = samples_dir
+                env["RENDER_TEMPLATE_PATH"] = resolved_template
 
-                # Normalize all rendered WAVs
-                print(f"\n[Step 3] Normalizing samples...")
-                normalize_count = 0
-                for sample in manifest['samples']:
-                    wav_path = os.path.join(samples_dir, sample['wav_file'])
-                    if os.path.exists(wav_path):
-                        normalize_count += 1
-                print(f"  {normalize_count} samples rendered")
+                cmd = [args.reaper, "-nosplash", "-new", RENDER_SEQ_LUA]
+                proc = subprocess.Popen(cmd, env=env)
+
+                start_time = time.time()
+                while time.time() - start_time < args.render_timeout:
+                    if proc.poll() is not None:
+                        break
+                    time.sleep(5)
+                else:
+                    print(f"  [WARN] Timeout, killing Reaper")
+                    proc.kill()
+
+                normalize_count = len([f for f in os.listdir(samples_dir) if f.endswith('.wav')])
 
                 # Envelope analysis
                 print(f"\n[Step 4] Analyzing envelope...")
