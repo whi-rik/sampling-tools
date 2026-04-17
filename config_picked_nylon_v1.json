@@ -1,0 +1,25 @@
+{
+  "instrument_name": "Picked_Nylon_v1",
+  "kontakt_inst": "Picked Nylon (Melody)",
+  "template_path": "\\AppData\\Roaming\\REAPER\\TrackTemplates\\ver1.1\\24_Acoustic Guitar (nylon)_Kontakt - Picked Nylon (Melody).RTrackTemplate",
+  "vst_seq": 1184,
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "range": { "lo_note": 48, "hi_note": 84 },
+  "sampling_interval": 1,
+  "articulations": [{
+    "name": "open",
+    "keyswitch": 36,
+    "note_duration_sec": 8.0,
+    "release_tail_sec": 3.0,
+    "silence_gap_sec": 2.0,
+    "sustain_pedal": false,
+    "hold_cc": { "cc1": 127, "cc11": 127 },
+    "velocity_layers": [
+      { "name": "pp", "midi_vel": 40,  "lo_vel": 0,   "hi_vel": 60  },
+      { "name": "mf", "midi_vel": 85,  "lo_vel": 61,  "hi_vel": 105 },
+      { "name": "ff", "midi_vel": 127, "lo_vel": 106, "hi_vel": 127 }
+    ],
+    "round_robins": 1
+  }]
+}
