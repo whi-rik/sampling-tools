@@ -1,0 +1,35 @@
+{
+  "instrument_name": "Cuba_cc_probe",
+  "kontakt_inst": "Cuba",
+  "template_path": "\\AppData\\Roaming\\REAPER\\TrackTemplates\\ver1\\Cuba_Brass_Trumpet_00113.RTrackTemplate",
+  "vst_seq": 400,
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "range": { "lo_note": 60, "hi_note": 60 },
+  "sampling_interval": 1,
+  "articulations": [{
+    "name": "sustain",
+    "keyswitch": null,
+    "note_duration_sec": 8.0,
+    "release_tail_sec": 1.0,
+    "silence_gap_sec": 1.0,
+    "sustain_pedal": false,
+    "hold_cc": {},
+    "velocity_layers": [
+      { "name": "baseline",  "midi_vel": 90, "lo_vel": 0,  "hi_vel": 0,  "layer_cc": {} },
+      { "name": "cc1_0",     "midi_vel": 90, "lo_vel": 1,  "hi_vel": 1,  "layer_cc": { "cc1": 0 } },
+      { "name": "cc1_127",   "midi_vel": 90, "lo_vel": 2,  "hi_vel": 2,  "layer_cc": { "cc1": 127 } },
+      { "name": "cc2_0",     "midi_vel": 90, "lo_vel": 3,  "hi_vel": 3,  "layer_cc": { "cc2": 0 } },
+      { "name": "cc2_127",   "midi_vel": 90, "lo_vel": 4,  "hi_vel": 4,  "layer_cc": { "cc2": 127 } },
+      { "name": "cc7_0",     "midi_vel": 90, "lo_vel": 5,  "hi_vel": 5,  "layer_cc": { "cc7": 0 } },
+      { "name": "cc7_127",   "midi_vel": 90, "lo_vel": 6,  "hi_vel": 6,  "layer_cc": { "cc7": 127 } },
+      { "name": "cc11_0",    "midi_vel": 90, "lo_vel": 7,  "hi_vel": 7,  "layer_cc": { "cc11": 0 } },
+      { "name": "cc11_127",  "midi_vel": 90, "lo_vel": 8,  "hi_vel": 8,  "layer_cc": { "cc11": 127 } },
+      { "name": "cc21_0",    "midi_vel": 90, "lo_vel": 9,  "hi_vel": 9,  "layer_cc": { "cc21": 0 } },
+      { "name": "cc21_127",  "midi_vel": 90, "lo_vel": 10, "hi_vel": 10, "layer_cc": { "cc21": 127 } },
+      { "name": "cc74_0",    "midi_vel": 90, "lo_vel": 11, "hi_vel": 11, "layer_cc": { "cc74": 0 } },
+      { "name": "cc74_127",  "midi_vel": 90, "lo_vel": 12, "hi_vel": 12, "layer_cc": { "cc74": 127 } }
+    ],
+    "round_robins": 1
+  }]
+}
