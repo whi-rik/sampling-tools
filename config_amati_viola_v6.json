@@ -1,0 +1,25 @@
+{
+  "instrument_name": "Amati_Viola_v6",
+  "kontakt_inst": "Amati Viola",
+  "template_path": "\\AppData\\Roaming\\REAPER\\TrackTemplates\\ver1\\Amati Viol_Bowed_Amati Viol_00062.RTrackTemplate",
+  "vst_seq": 345,
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "range": { "lo_note": 48, "hi_note": 92 },
+  "sampling_interval": 1,
+  "articulations": [{
+    "name": "sustain",
+    "keyswitch": 26,
+    "note_duration_sec": 20.0,
+    "release_tail_sec": 3.0,
+    "silence_gap_sec": 2.0,
+    "sustain_pedal": false,
+    "hold_cc": { "cc1": 127, "cc11": 127 },
+    "velocity_layers": [
+      { "name": "pp", "midi_vel": 40, "lo_vel": 0, "hi_vel": 60 },
+      { "name": "mf", "midi_vel": 85, "lo_vel": 61, "hi_vel": 105 },
+      { "name": "ff", "midi_vel": 127, "lo_vel": 106, "hi_vel": 127 }
+    ],
+    "round_robins": 1
+  }]
+}
