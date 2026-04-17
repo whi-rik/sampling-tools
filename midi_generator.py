@@ -182,8 +182,9 @@ def generate_individual_midis(config, articulation, output_dir):
                 track.append(MetaMessage('set_tempo', tempo=tempo))
                 track.append(MetaMessage('track_name', name=basename))
 
-                # Hold CCs
-                for cc_name, cc_val in hold_cc.items():
+                # Hold CCs (layer_cc overrides hold_cc for this velocity layer)
+                effective_cc = {**hold_cc, **vel_layer.get('layer_cc', {})}
+                for cc_name, cc_val in effective_cc.items():
                     cc_num = int(cc_name.replace('cc', ''))
                     track.append(Message('control_change', control=cc_num, value=cc_val, time=0))
 
